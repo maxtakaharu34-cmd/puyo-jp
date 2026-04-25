@@ -1,13 +1,15 @@
-// ぷにぷに — Puyo-Puyo-style chain dropper (vanilla JS, canvas)
+// ぽよぽよ — Puyo-Puyo-style chain dropper (vanilla JS, canvas)
 (() => {
   'use strict';
 
   const COLS = 6, ROWS = 12;
   const CELL = 32;
   const W = COLS * CELL, H = ROWS * CELL;
-  const COLORS = ['#ff5577', '#5ad36b', '#5aa9ff', '#ffd95a']; // red green blue yellow
+  // Only 3 colors → connecting 4+ is much easier
+  const COLORS = ['#ff5577', '#5ad36b', '#5aa9ff', '#ffd95a'];
   const COLOR_KEYS = ['R', 'G', 'B', 'Y'];
   const POP_THRESHOLD = 4;
+  const ACTIVE_COLORS = 3; // restrict random pairs to first N colors
 
   const $ = (id) => document.getElementById(id);
   const canvas = $('game');
@@ -67,9 +69,9 @@
     pair: null,        // { ax, ay, bx, by, ca, cb, rot } — axis (a) and sub (b) puyo
     next: null,        // [colorA, colorB]
     fallTimer: 0,
-    fallInterval: 38,  // frames between automatic 1-cell drop
+    fallInterval: 75,  // much slower auto-fall (was 38)
     softDrop: false,
-    locking: 0,        // small grace before locking
+    locking: 0,        // grace before locking
     score: 0,
     best: +(localStorage.getItem('puyo_best') || 0),
     cleared: 0,
@@ -85,7 +87,7 @@
   bestEl.textContent = state.best;
 
   function randomColorPair() {
-    return [Math.floor(Math.random() * COLORS.length), Math.floor(Math.random() * COLORS.length)];
+    return [Math.floor(Math.random() * ACTIVE_COLORS), Math.floor(Math.random() * ACTIVE_COLORS)];
   }
   function spawnPair() {
     if (!state.next) state.next = randomColorPair();
@@ -244,7 +246,8 @@
       } else {
         // small grace before lock
         state.locking++;
-        if (state.locking > 6 || state.softDrop) {
+        // Generous grace so the player can slide / rotate at the bottom
+        if (state.locking > 18 || state.softDrop) {
           state.locking = 0;
           lockPair();
         }
@@ -303,6 +306,21 @@
   }
 
   // ---------- Render ----------
+  function drawGhost(c, x, y, color) {
+    const cx = x * CELL + CELL / 2;
+    const cy = y * CELL + CELL / 2;
+    const r = CELL / 2 - 4;
+    c.save();
+    c.globalAlpha = 0.35;
+    c.lineWidth = 2;
+    c.setLineDash([3, 3]);
+    c.strokeStyle = color;
+    c.beginPath();
+    c.arc(cx, cy, r, 0, Math.PI * 2);
+    c.stroke();
+    c.restore();
+  }
+
   function drawPuyo(c, x, y, color, alpha = 1, flash = false) {
     const cx = x * CELL + CELL / 2;
     const cy = y * CELL + CELL / 2;
@@ -360,9 +378,20 @@
         drawPuyo(ctx, x, y, COLORS[c], 1, isPop && flashOn);
       }
     }
-    // Falling pair
+    // Landing-guide ghost (faint outline at the lowest legal landing position)
     if (state.pair && state.phase === 'play') {
       const p = state.pair;
+      let g = { ...p };
+      while (true) {
+        const t = { ...g, ay: g.ay + 1, by: g.by + 1 };
+        if (collides(t)) break;
+        g = t;
+      }
+      if (g.ay !== p.ay) {
+        drawGhost(ctx, g.ax, g.ay, COLORS[g.ca]);
+        drawGhost(ctx, g.bx, g.by, COLORS[g.cb]);
+      }
+      // Falling pair on top
       drawPuyo(ctx, p.ax, p.ay, COLORS[p.ca]);
       drawPuyo(ctx, p.bx, p.by, COLORS[p.cb]);
     }
